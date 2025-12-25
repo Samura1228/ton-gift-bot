@@ -2,10 +2,10 @@
   "name": "ton-notification-bot",
   "version": "1.0.0",
   "description": "Telegram bot for monitoring TON blockchain transactions",
-  "main": "ton-notification-bot.js",
+  "main": "ton-gift-bot.js",
   "scripts": {
-    "start": "node ton-notification-bot.js",
-    "dev": "nodemon ton-notification-bot.js"
+    "start": "node ton-gift-bot.js",
+    "dev": "nodemon ton-gift-bot.js"
   },
   "dependencies": {
     "axios": "^1.4.0",
