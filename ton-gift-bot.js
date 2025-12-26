@@ -763,6 +763,7 @@ function analyzeRealGiftParameters(giftLink, params) {
       rarityScore: Math.round(rarityScore * 10) / 10, // Round to 1 decimal
       rarityTier,
       priceEstimation,
+      floorPrice,
       explanation,
       marketDemand: demandLevel,
       realData: true
@@ -884,55 +885,36 @@ function determineGiftParametersFromHash(hash, originalCode) {
 
 // Format rarity analysis message with improved market insights
 function formatRarityAnalysis(analysis) {
-  let message = '';
-  
-  message += `*Gift Rarity Analysis*\n\n`;
-  message += `[Gift Link](${analysis.link})\n\n`;
-  
-  message += `*Gift Parameters:*\n`;
-  message += `Model: ${analysis.parameters.model}\n`;
-  message += `Background: ${analysis.parameters.background}\n`;
-  message += `Symbol: ${analysis.parameters.symbol}\n`;
-  
-  if (analysis.parameters.edition) {
-    if (analysis.parameters.edition.includes('/')) {
-      message += `Availability: ${analysis.parameters.edition}\n\n`;
-    } else {
-      message += `Edition: ${analysis.parameters.edition}\n\n`;
-    }
-  } else {
-    message += `\n`;
+  const p = analysis.parameters;
+  const est = analysis.priceEstimation;
+  const floor = analysis.floorPrice || 0;
+
+  if (est.error) {
+    return `Error: ${est.error}`;
   }
+
+  // Format rarity percentages if they exist in the string (e.g. "Name 5%")
+  // The scraper returns strings like "Name 5%", so we can use them directly.
   
-  message += `*Rarity Assessment:*\n`;
-  message += `Tier: ${analysis.rarityTier}\n`;
-  message += `Score: ${analysis.rarityScore}\n`;
-  if (analysis.marketDemand) {
-    message += `Market Demand: ${analysis.marketDemand.charAt(0).toUpperCase() + analysis.marketDemand.slice(1)}\n\n`;
-  } else {
-    message += `\n`;
-  }
-  
-  if (analysis.priceEstimation.error) {
-    message += `*Price Estimation:* ${analysis.priceEstimation.error}\n\n`;
-  } else {
-    message += `*Fair Market Value (TON):*\n`;
-    message += `⚡ Fast Sale: ${analysis.priceEstimation.fast} TON\n`;
-    message += `🏷️ Market Price: ${analysis.priceEstimation.market} TON\n`;
-    message += `💎 Max Price: ${analysis.priceEstimation.max} TON\n`;
-    message += `(Rarity Bonus: +${analysis.priceEstimation.bonusPercent}%)\n\n`;
-  }
-  
-  message += `*Analysis:*\n${analysis.explanation}`;
-  
-  // Add data source note
-  if (analysis.realData) {
-    message += `\n\n_Analysis based on actual gift parameters you provided._`;
-  } else {
-    message += `\n\n_Note: Values are based on current market conditions and may fluctuate over time._`;
-  }
-  
-  return message;
+  return `🎁 Gift Analysis
+
+Parameters:
+• Model: ${p.model}
+• Symbol: ${p.symbol}
+• Background: ${p.background}
+
+Market Reference:
+• Collection floor: ${floor.toFixed(2)} TON
+• Rarity bonus: +${est.bonusPercent}%
+
+Price Recommendation:
+🟢 Fast sale: ${est.fast} TON
+🟡 Market price: ${est.market} TON
+🔴 Max price (slow sale): ${est.max} TON
+
+Note:
+Rarity slightly increases price but does not guarantee a fast sale.
+Prices above the recommended range may take significantly longer to sell.`;
 }
 
 // Validate TON address
