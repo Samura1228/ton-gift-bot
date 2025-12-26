@@ -752,6 +752,7 @@ async function analyzeRealGiftParameters(giftLink, params) {
       rarityTier,
       priceEstimation,
       floorPrice,
+      scrapedValue: params.value,
       explanation,
       marketDemand: demandLevel,
       realData: true
@@ -890,6 +891,7 @@ Parameters:
 • Model: ${p.model}
 • Symbol: ${p.symbol}
 • Background: ${p.background}
+• Original Value: ${analysis.scrapedValue && analysis.scrapedValue.amount > 0 ? analysis.scrapedValue.amount + ' ' + analysis.scrapedValue.currency : 'N/A'}
 
 Market Reference:
 • Collection floor: ${floor.toFixed(2)} TON
@@ -1214,7 +1216,7 @@ bot.on('message', async (msg) => {
                 symbolRaw: findValueForLabel("Symbol"),
                 backgroundRaw: findValueForLabel("Backdrop") || findValueForLabel("Background"),
                 availabilityRaw: findValueForLabel("Availability") || findValueForLabel("Quantity"),
-                valueRaw: findValueForLabel("Value"),
+                valueRaw: findValueForLabel("Value") || findValueForLabel("Price") || findValueForLabel("€") || findValueForLabel("TON"),
                 title: document.title
               };
             });

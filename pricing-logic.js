@@ -8,7 +8,7 @@ const floorCache = {
 };
 
 // DIRECT URL for Telegram Gifts listings
-const TONNEL_GIFTS_URL = 'https://tonnel.network/marketplace'; 
+const TONNEL_GIFTS_URL = 'https://tonnel.network/telegram-gifts';
 
 /**
  * Helper function to calculate rarity bonus based on percentage (0.0-1.0 scale)
