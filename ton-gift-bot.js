@@ -2,7 +2,7 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const { estimatePrice } = require('./pricing-logic');
+const { estimatePrice, getCachedFloorPrice } = require('./pricing-logic');
 let puppeteer;
 try {
   puppeteer = require('puppeteer');
@@ -634,7 +634,7 @@ function parseGiftParameters(input) {
 }
 
 // Analyze real gift parameters
-function analyzeRealGiftParameters(giftLink, params) {
+async function analyzeRealGiftParameters(giftLink, params) {
   try {
     // Calculate rarity score based on actual rarity percentages
     // Lower percentage = more rare = higher score
@@ -668,42 +668,35 @@ function analyzeRealGiftParameters(giftLink, params) {
     else if (params.model.rarity < 5 || params.symbol.rarity < 1) demandLevel = "high";
     else if (rarityScore < 20) demandLevel = "low";
     
-    // Use the provided value or estimate one based on rarity
-    let tonValue = 0;
-    const providedValue = params.value.amount || 0;
-    
-    if (providedValue > 0) {
-      // Use provided value
-      tonValue = params.value.currency === '€' ?
-        providedValue / 3.5 : // Approximate EUR to TON conversion
-        providedValue;
-    } else {
-      // Estimate value based on rarity score
-      // Formula: Base Price * (Rarity Score / 10)^2
-      // This gives exponential value to rarer items
-      // Estimate value based on rarity score with aggressive multipliers for scarcity
-      const basePrice = 10; // Higher base price for any gift
+    // Calculate price using the new strict market logic
+    let priceEstimation;
+    let floorPrice = null;
+
+    try {
+      // Determine collection name from model or title
+      const collectionName = params.model.name || "Unknown Collection";
       
-      // Exponential curve: extremely rare items get massive multipliers
-      // Score 10 (Common) -> 1x
-      // Score 50 (Rare) -> ~55x
-      // Score 100 (Epic) -> ~316x
-      const rarityMultiplier = Math.pow(rarityScore / 10, 2.5);
+      // Fetch floor price from TONNEL (cached)
+      floorPrice = await getCachedFloorPrice(collectionName);
       
-      // Scarcity premium: if availability is low, boost price further
-      const scarcityPremium = params.availability.percentage > 90 ? 1.5 : 1.0;
+      const attributes = [
+        { name: 'Model', rarity: params.model.rarity },
+        { name: 'Symbol', rarity: params.symbol.rarity },
+        { name: 'Background', rarity: params.background.rarity }
+      ];
+
+      priceEstimation = estimatePrice({ floorPrice, attributes });
       
-      // Add some randomness to the estimate (±10%)
-      const variance = 0.9 + (Math.random() * 0.2);
+      console.log("FINAL PRICE RESULT:", priceEstimation);
       
-      tonValue = basePrice * rarityMultiplier * scarcityPremium * variance;
-      
-      // Ensure minimum price
-      if (tonValue < 5) tonValue = 5;
+    } catch (e) {
+      logger.error(`Pricing error: ${e.message}`);
+      // Return the strict error message required
+      priceEstimation = {
+        fast: 0, market: 0, max: 0, bonusPercent: 0,
+        error: "Рыночные данные временно недоступны. Не удалось определить floor коллекции."
+      };
     }
-    
-    // Convert to stars
-    const starsValue = Math.round(tonValue * currentMarket.tonToStarRatio);
     
     // Generate explanation
     let explanation = '';
@@ -746,11 +739,6 @@ function analyzeRealGiftParameters(giftLink, params) {
     }
     
     explanation += `\n\nMarket assessment: ${marketInsight}`;
-    
-    // If the gift has a provided value, add a note about it
-    if (providedValue > 0) {
-      explanation += `\n\nThe current listed value is ${providedValue} ${params.value.currency}, which is approximately ${tonValue.toFixed(2)} TON.`;
-    }
     
     return {
       link: giftLink,
@@ -1386,7 +1374,7 @@ bot.on('message', async (msg) => {
       }
       
       // Analyze the gift with the extracted parameters
-      const analysis = analyzeRealGiftParameters(giftLink, giftParams);
+      const analysis = await analyzeRealGiftParameters(giftLink, giftParams);
       
       // Format and send the analysis
       const message = formatRarityAnalysis(analysis);
