@@ -2,6 +2,7 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const { estimatePrice } = require('./pricing-logic');
 let puppeteer;
 try {
   puppeteer = require('puppeteer');
@@ -761,8 +762,7 @@ function analyzeRealGiftParameters(giftLink, params) {
       },
       rarityScore: Math.round(rarityScore * 10) / 10, // Round to 1 decimal
       rarityTier,
-      tonValue: tonValue.toFixed(2),
-      starsValue,
+      priceEstimation,
       explanation,
       marketDemand: demandLevel,
       realData: true
@@ -779,8 +779,7 @@ function analyzeRealGiftParameters(giftLink, params) {
       },
       rarityScore: 10,
       rarityTier: 'Common',
-      tonValue: (params.value.amount / 3.5 || 1).toFixed(2),
-      starsValue: Math.round((params.value.amount / 3.5 || 1) * currentMarket.tonToStarRatio),
+      priceEstimation: { fast: 0, market: 0, max: 0, bonusPercent: 0, error: "Analysis failed" },
       explanation: 'Unable to properly analyze this gift due to an error.',
       realData: true
     };
@@ -914,9 +913,15 @@ function formatRarityAnalysis(analysis) {
     message += `\n`;
   }
   
-  message += `*Estimated Value:*\n`;
-  message += `${analysis.tonValue} TON\n`;
-  message += `${analysis.starsValue} Telegram Stars\n\n`;
+  if (analysis.priceEstimation.error) {
+    message += `*Price Estimation:* ${analysis.priceEstimation.error}\n\n`;
+  } else {
+    message += `*Fair Market Value (TON):*\n`;
+    message += `⚡ Fast Sale: ${analysis.priceEstimation.fast} TON\n`;
+    message += `🏷️ Market Price: ${analysis.priceEstimation.market} TON\n`;
+    message += `💎 Max Price: ${analysis.priceEstimation.max} TON\n`;
+    message += `(Rarity Bonus: +${analysis.priceEstimation.bonusPercent}%)\n\n`;
+  }
   
   message += `*Analysis:*\n${analysis.explanation}`;
   
