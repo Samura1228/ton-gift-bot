@@ -680,16 +680,25 @@ function analyzeRealGiftParameters(giftLink, params) {
       // Estimate value based on rarity score
       // Formula: Base Price * (Rarity Score / 10)^2
       // This gives exponential value to rarer items
-      const basePrice = 5; // Base price in TON
+      // Estimate value based on rarity score with aggressive multipliers for scarcity
+      const basePrice = 10; // Higher base price for any gift
+      
+      // Exponential curve: extremely rare items get massive multipliers
+      // Score 10 (Common) -> 1x
+      // Score 50 (Rare) -> ~55x
+      // Score 100 (Epic) -> ~316x
       const rarityMultiplier = Math.pow(rarityScore / 10, 2.5);
+      
+      // Scarcity premium: if availability is low, boost price further
+      const scarcityPremium = params.availability.percentage > 90 ? 1.5 : 1.0;
       
       // Add some randomness to the estimate (±10%)
       const variance = 0.9 + (Math.random() * 0.2);
       
-      tonValue = basePrice * rarityMultiplier * variance;
+      tonValue = basePrice * rarityMultiplier * scarcityPremium * variance;
       
       // Ensure minimum price
-      if (tonValue < 1) tonValue = 1;
+      if (tonValue < 5) tonValue = 5;
     }
     
     // Convert to stars
@@ -1266,7 +1275,7 @@ bot.on('message', async (msg) => {
                percentage: 50
              },
              value: {
-               amount: parseFloat(scrapedData.valueRaw.replace(/[^0-9.]/g, '')) || 10,
+               amount: parseFloat(scrapedData.valueRaw.replace(/[^0-9.]/g, '')) || 0,
                currency: '€'
              }
            };
