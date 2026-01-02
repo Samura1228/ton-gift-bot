@@ -3,7 +3,7 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const { estimatePrice } = require('./services/pricingLogic');
-const { getBestFloor } = require('./services/markets/index');
+const { getCollectionFloorTon } = require('./services/markets/index');
 let puppeteer;
 try {
   puppeteer = require('puppeteer');
@@ -644,11 +644,7 @@ async function analyzeRealGiftParameters(giftLink, params) {
       const collectionName = params.model.name || "Unknown Collection";
       
       // Fetch floor price from Aggregator
-      const floorData = await getBestFloor(collectionName);
-      
-      if (floorData) {
-        floorPrice = floorData.price;
-      }
+      floorPrice = await getCollectionFloorTon(collectionName);
       
       const attributes = [
         { name: 'Model', rarity: params.model.rarity },

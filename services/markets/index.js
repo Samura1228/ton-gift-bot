@@ -1,48 +1,41 @@
-const { getTonnelFloor } = require('./tonnel');
-const { getPortalsFloor } = require('./portals');
+const cache = require('../cache');
+const { fetchFloorFromTonnel } = require('./tonnel');
+const { fetchFloorFromPortals } = require('./portals');
+const { fetchFloorFromMrkt } = require('./mrkt');
 
-// Cache storage
-const floorCache = {
-  data: {},
-  ttl: 60 * 60 * 1000 // 60 minutes
-};
-
-/**
- * Gets the best available floor price from markets
- * @param {string} collectionName 
- * @returns {Promise<{price: number, source: string}|null>}
- */
-async function getBestFloor(collectionName) {
+async function getCollectionFloorTon(collectionName) {
   // 1. Check Cache
-  const now = Date.now();
-  const cached = floorCache.data[collectionName];
-  
-  if (cached && (now - cached.timestamp < floorCache.ttl)) {
-    return { price: cached.price, source: cached.source };
-  }
+  const cached = cache.get(collectionName);
+  if (cached) return cached;
+
+  let floor = null;
+  let source = null;
 
   // 2. Try TONNEL (Primary)
-  let floor = await getTonnelFloor(collectionName);
-  let source = 'tonnel';
+  floor = await fetchFloorFromTonnel(collectionName);
+  if (floor !== null) source = 'TONNEL';
 
   // 3. Try Portals (Fallback)
   if (floor === null) {
-    floor = await getPortalsFloor(collectionName);
-    source = 'portals';
+    floor = await fetchFloorFromPortals(collectionName);
+    if (floor !== null) source = 'Portals';
   }
 
-  // 4. Return result or null
+  // 4. Try MRKT (Fallback)
+  if (floor === null) {
+    floor = await fetchFloorFromMrkt(collectionName);
+    if (floor !== null) source = 'MRKT';
+  }
+
+  // 5. Cache and Return
   if (floor !== null) {
-    // Update Cache
-    floorCache.data[collectionName] = {
-      price: floor,
-      source: source,
-      timestamp: now
-    };
-    return { price: floor, source: source };
+    console.log(`Floor found for ${collectionName}: ${floor} TON (Source: ${source})`);
+    cache.set(collectionName, floor);
+    return floor;
   }
 
+  console.log(`No floor found for ${collectionName} on any market.`);
   return null;
 }
 
-module.exports = { getBestFloor };
+module.exports = { getCollectionFloorTon };

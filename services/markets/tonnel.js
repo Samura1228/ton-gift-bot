@@ -1,82 +1,84 @@
-const puppeteer = require('puppeteer');
+const httpClient = require('../httpClient');
+const tonnelSession = require('../tonnelSession');
 
-const TONNEL_BASE_URL = 'https://tonnel.network/';
-const TONNEL_API_URL = 'https://gifts2.tonnel.network/api/pageGifts';
+const API_URL = 'https://gifts2.tonnel.network/api/pageGifts';
 
-/**
- * Fetches floor price from TONNEL using Puppeteer context
- * @param {string} collectionName 
- * @returns {Promise<number|null>} Floor price in TON or null
- */
-async function getTonnelFloor(collectionName) {
-  let browser = null;
-  try {
-    browser = await puppeteer.launch({
-      headless: "new",
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-    const page = await browser.newPage();
-    
-    // Open base URL to establish context/cookies if needed
-    await page.goto(TONNEL_BASE_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
+async function fetchFloorFromTonnel(collectionName) {
+  let session = await tonnelSession.getSession();
+  
+  // Retry logic variables
+  let attempts = 0;
+  const maxAttempts = 3;
 
-    // Execute fetch inside the browser context
-    const floorPrice = await page.evaluate(async (apiUrl, name) => {
-      try {
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            page: 1,
-            limit: 50,
-            sort: { price: 1 }, // Ascending
-            filter: {
-              // Try generic search/filter
-              search: name
-            }
-          })
-        });
+  while (attempts < maxAttempts) {
+    try {
+      // Construct payload variants
+      // We try the most likely one first. If it returns empty, we might try others if we implemented that logic.
+      // For now, we stick to a robust standard payload.
+      const payload = {
+        page: 1,
+        limit: 50,
+        sort: { price: 1 },
+        filter: {
+          // Try generic search first
+          search: collectionName
+        }
+      };
 
-        if (!response.ok) return null;
+      const response = await httpClient.post(API_URL, payload, {
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': session.userAgent,
+          'Cookie': session.cookieHeader,
+          'Origin': 'https://gifts2.tonnel.network',
+          'Referer': 'https://gifts2.tonnel.network/'
+        }
+      });
 
-        const data = await response.json();
-        const items = data.docs || data.items || (Array.isArray(data) ? data : []);
+      const data = response.data;
+      const items = data.docs || data.items || (Array.isArray(data) ? data : []);
 
-        if (!items || items.length === 0) return null;
-
-        // Filter and extract prices
-        const validPrices = items
-          .filter(item => {
-            const itemName = item.name || item.giftName || "";
-            return itemName.toLowerCase().includes(name.toLowerCase());
-          })
-          .map(item => {
-            let price = item.price || item.amount || 0;
-            if (typeof price === 'string') price = parseFloat(price);
-            // Handle nanoTON
-            if (price > 1000000) price = price / 1000000000;
-            return price;
-          })
-          .filter(p => p > 0);
-
-        if (validPrices.length === 0) return null;
-
-        return Math.min(...validPrices);
-      } catch (e) {
+      if (!items || items.length === 0) {
+        // Could try fallback payload here if needed, e.g. { filter: { giftName: ... } }
         return null;
       }
-    }, TONNEL_API_URL, collectionName);
 
-    return floorPrice;
+      // Filter and extract prices
+      const validPrices = items
+        .filter(item => {
+          const name = item.name || item.giftName || "";
+          return name.toLowerCase().includes(collectionName.toLowerCase());
+        })
+        .map(item => {
+          let price = item.price || item.amount || item.ton || item.priceTon || 0;
+          if (typeof price === 'string') price = parseFloat(price);
+          // Heuristic for nanoTON
+          if (price > 1000000) price = price / 1000000000;
+          return price;
+        })
+        .filter(p => p > 0);
 
-  } catch (error) {
-    console.error(`TONNEL fetch error for ${collectionName}:`, error.message);
-    return null;
-  } finally {
-    if (browser) await browser.close();
+      if (validPrices.length === 0) return null;
+
+      return Math.min(...validPrices);
+
+    } catch (error) {
+      if (error.response && error.response.status === 403) {
+        console.log(`TONNEL 403 Forbidden (Attempt ${attempts + 1}). Refreshing session...`);
+        await tonnelSession.refresh();
+        session = await tonnelSession.getSession();
+        attempts++;
+        // Exponential backoff
+        await new Promise(r => setTimeout(r, 300 * Math.pow(2, attempts)));
+        continue;
+      }
+      
+      console.error(`TONNEL API error for ${collectionName}:`, error.message);
+      return null;
+    }
   }
+  
+  return null;
 }
 
-module.exports = { getTonnelFloor };
+module.exports = { fetchFloorFromTonnel };
