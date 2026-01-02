@@ -1,5 +1,5 @@
 const axios = require('axios');
-const cache = require('../cache');
+const cache = require('./cache'); // Reuse existing cache if available, or create simple one
 
 const PROXY_URL = process.env.MARKET_PROXY_URL;
 
