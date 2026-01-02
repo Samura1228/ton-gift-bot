@@ -2,7 +2,8 @@
 require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const { estimatePrice, getCachedFloorPrice } = require('./pricing-logic');
+const { estimatePrice } = require('./services/pricingLogic');
+const { getCollectionFloorTon } = require('./services/tonnelFloor');
 let puppeteer;
 try {
   puppeteer = require('puppeteer');
@@ -636,40 +637,7 @@ function parseGiftParameters(input) {
 // Analyze real gift parameters
 async function analyzeRealGiftParameters(giftLink, params) {
   try {
-    // Calculate rarity score based on actual rarity percentages
-    // Lower percentage = more rare = higher score
-    const modelRarityScore = params.model.rarity > 0 ? 100 / params.model.rarity : 10;
-    const symbolRarityScore = params.symbol.rarity > 0 ? 100 / params.symbol.rarity : 10;
-    const backgroundRarityScore = params.background.rarity > 0 ? 100 / params.background.rarity : 10;
-    
-    // Calculate availability score - rarer = higher score
-    const availabilityPercentage = params.availability.percentage || 95; // Default if not provided
-    const availabilityScore = 100 - availabilityPercentage;
-    
-    // Calculate comprehensive rarity score
-    const rarityScore = (
-      modelRarityScore * 2 +
-      symbolRarityScore * 3 +
-      backgroundRarityScore * 1.5 +
-      availabilityScore
-    ) / 7; // Weighted average
-    
-    // Determine rarity tier based on comprehensive score
-    let rarityTier = 'Common';
-    if (rarityScore >= 150) rarityTier = 'Legendary';
-    else if (rarityScore >= 100) rarityTier = 'Epic';
-    else if (rarityScore >= 75) rarityTier = 'Very Rare';
-    else if (rarityScore >= 50) rarityTier = 'Rare';
-    else if (rarityScore >= 25) rarityTier = 'Uncommon';
-    
-    // Market demand assessment
-    let demandLevel = "medium";
-    if (params.model.rarity < 1 || params.symbol.rarity < 0.5) demandLevel = "veryHigh";
-    else if (params.model.rarity < 5 || params.symbol.rarity < 1) demandLevel = "high";
-    else if (rarityScore < 20) demandLevel = "low";
-    
-    // Calculate price using the new strict market logic
-    let priceEstimation;
+    let priceResult;
     let floorPrice = null;
 
     try {
@@ -677,7 +645,7 @@ async function analyzeRealGiftParameters(giftLink, params) {
       const collectionName = params.model.name || "Unknown Collection";
       
       // Fetch floor price from TONNEL (cached)
-      floorPrice = await getCachedFloorPrice(collectionName);
+      floorPrice = await getCollectionFloorTon(collectionName);
       
       const attributes = [
         { name: 'Model', rarity: params.model.rarity },
@@ -685,60 +653,18 @@ async function analyzeRealGiftParameters(giftLink, params) {
         { name: 'Background', rarity: params.background.rarity }
       ];
 
-      priceEstimation = estimatePrice({ floorPrice, attributes });
+      priceResult = estimatePrice({ floorPrice, attributes });
       
-      console.log("FINAL PRICE RESULT:", priceEstimation);
+      console.log("FINAL PRICE RESULT:", priceResult);
       
     } catch (e) {
       logger.error(`Pricing error: ${e.message}`);
       // Return the strict error message required
-      priceEstimation = {
+      priceResult = {
         fast: 0, market: 0, max: 0, bonusPercent: 0,
-        error: "Рыночные данные временно недоступны. Не удалось определить floor коллекции."
+        error: "Market data temporarily unavailable. Unable to determine collection floor."
       };
     }
-    
-    // Generate explanation
-    let explanation = '';
-    
-    // Add model insights
-    if (params.model.rarity < 10) {
-      explanation += `The ${params.model.name} model is ${params.model.rarity < 1 ? 'extremely' : params.model.rarity < 5 ? 'very' : 'quite'} rare with only ${params.model.rarity}% of gifts having this model. `;
-    }
-    
-    // Add symbol insights
-    if (params.symbol.rarity < 5) {
-      explanation += `The ${params.symbol.name} symbol is ${params.symbol.rarity < 1 ? 'extremely' : params.symbol.rarity < 2 ? 'very' : 'quite'} rare with only ${params.symbol.rarity}% of gifts having this symbol. `;
-    }
-    
-    // Add background insights
-    if (params.background.rarity < 5) {
-      explanation += `The ${params.background.name} background is ${params.background.rarity < 1 ? 'extremely' : params.background.rarity < 2 ? 'very' : 'quite'} rare with only ${params.background.rarity}% of gifts having this background. `;
-    }
-    
-    // Add availability insights
-    if (params.availability.total > 0) {
-      const availabilityPercentage = (params.availability.current / params.availability.total) * 100;
-      explanation += `This gift is ${availabilityPercentage < 10 ? 'extremely' : availabilityPercentage < 30 ? 'very' : availabilityPercentage < 50 ? 'quite' : 'somewhat'} rare with only ${params.availability.current.toLocaleString()} out of ${params.availability.total.toLocaleString()} (${availabilityPercentage.toFixed(1)}%) issued. `;
-    }
-    
-    // Add market insights
-    let marketInsight = '';
-    if (demandLevel === "veryHigh") {
-      marketInsight = "This combination of features is extremely sought after in the current market.";
-    } else if (demandLevel === "high") {
-      marketInsight = "This gift has features that are currently in high demand.";
-    } else if (demandLevel === "medium") {
-      marketInsight = "This gift has moderate demand in the current market.";
-    } else {
-      marketInsight = "This gift currently has lower demand in the market.";
-    }
-    
-    if (explanation === '') {
-      explanation = 'This is a standard gift with common parameters.';
-    }
-    
-    explanation += `\n\nMarket assessment: ${marketInsight}`;
     
     return {
       link: giftLink,
@@ -748,13 +674,9 @@ async function analyzeRealGiftParameters(giftLink, params) {
         symbol: params.symbol.name,
         edition: `${params.availability.current}/${params.availability.total}`
       },
-      rarityScore: Math.round(rarityScore * 10) / 10, // Round to 1 decimal
-      rarityTier,
-      priceEstimation,
+      priceEstimation: priceResult,
       floorPrice,
       scrapedValue: params.value,
-      explanation,
-      marketDemand: demandLevel,
       realData: true
     };
   } catch (error) {
@@ -767,10 +689,7 @@ async function analyzeRealGiftParameters(giftLink, params) {
         symbol: params.symbol.name || 'Unknown',
         edition: params.availability.total > 0 ? `${params.availability.current}/${params.availability.total}` : 'Unknown'
       },
-      rarityScore: 10,
-      rarityTier: 'Common',
       priceEstimation: { fast: 0, market: 0, max: 0, bonusPercent: 0, error: "Analysis failed" },
-      explanation: 'Unable to properly analyze this gift due to an error.',
       realData: true
     };
   }
