@@ -3,7 +3,7 @@ require('dotenv').config();
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const { estimatePrice } = require('./services/pricingLogic');
-const { getCollectionFloorTon } = require('./services/tonnelFloor');
+const { getBestFloor } = require('./services/markets/index');
 let puppeteer;
 try {
   puppeteer = require('puppeteer');
@@ -641,11 +641,14 @@ async function analyzeRealGiftParameters(giftLink, params) {
     let floorPrice = null;
 
     try {
-      // Determine collection name from model or title
       const collectionName = params.model.name || "Unknown Collection";
       
-      // Fetch floor price from TONNEL (cached)
-      floorPrice = await getCollectionFloorTon(collectionName);
+      // Fetch floor price from Aggregator
+      const floorData = await getBestFloor(collectionName);
+      
+      if (floorData) {
+        floorPrice = floorData.price;
+      }
       
       const attributes = [
         { name: 'Model', rarity: params.model.rarity },
@@ -659,7 +662,6 @@ async function analyzeRealGiftParameters(giftLink, params) {
       
     } catch (e) {
       logger.error(`Pricing error: ${e.message}`);
-      // Return the strict error message required
       priceResult = {
         fast: 0, market: 0, max: 0, bonusPercent: 0,
         error: "Market data temporarily unavailable. Unable to determine collection floor."
