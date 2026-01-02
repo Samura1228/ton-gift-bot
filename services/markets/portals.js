@@ -1,7 +1,7 @@
-async function fetchFloorFromPortals(collectionName) {
-  // Placeholder for Portals API integration
+async function getFloorTon({ collectionName }) {
+  // Placeholder: Return null unless public API endpoint is available
   // console.log(`Checking Portals for ${collectionName}...`);
   return null;
 }
 
-module.exports = { fetchFloorFromPortals };
+module.exports = { getFloorTon };

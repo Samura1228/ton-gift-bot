@@ -1,6 +1,6 @@
-async function fetchFloorFromMrkt(collectionName) {
-  // Placeholder for MRKT API integration
+async function getFloorTon({ collectionName }) {
+  // Placeholder: Return null unless public API endpoint is available
   return null;
 }
 
-module.exports = { fetchFloorFromMrkt };
+module.exports = { getFloorTon };
