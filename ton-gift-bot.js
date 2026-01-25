@@ -1151,10 +1151,14 @@ bot.on('message', async (msg) => {
            // This is a simplified parser, assuming the text contains the label and value
            const parseRaw = (raw, label) => {
              if (!raw) return { name: "Unknown", rarity: 5 };
-             const parts = raw.replace(label, '').trim().split(/\s+/);
+             // Extract name (everything before the percentage)
+             const cleanRaw = raw.replace(label, '').trim();
+             const nameMatch = cleanRaw.match(/^(.*?)(?:\s+\d+(?:\.\d+)?%)?$/);
+             const name = nameMatch && nameMatch[1] ? nameMatch[1].trim() : "Unknown";
+             
              const rarityMatch = raw.match(/(\d+(?:\.\d+)?)%/);
              return {
-               name: parts[0] || "Unknown",
+               name: name || "Unknown",
                rarity: rarityMatch ? parseFloat(rarityMatch[1]) : 5
              };
            };
