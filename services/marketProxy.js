@@ -5,8 +5,8 @@ const PROXY_URL = process.env.MARKET_PROXY_URL;
 const TON_API_KEY = process.env.TON_API_KEY;
 const TON_API_URL = 'https://tonapi.io/v2';
 
-async function getCollectionFloorTon(collectionName, modelName) {
-  const cacheKey = `${collectionName}:${modelName || ''}`;
+async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
+  const cacheKey = `${collectionName}:${modelName || ''}:${nftAddress || ''}`;
   
   // 1. Check Cache
   const cached = cache.get(cacheKey);
@@ -17,8 +17,40 @@ async function getCollectionFloorTon(collectionName, modelName) {
   // 2. Try TonAPI (Direct, Reliable)
   if (TON_API_KEY) {
     try {
-      console.log(`Checking TonAPI for Collection: "${collectionName}", Model: "${modelName}"...`);
+      console.log(`Checking TonAPI... Collection: "${collectionName}", Model: "${modelName}", Address: "${nftAddress}"`);
       
+      // Strategy 0: If we have the NFT Address, look it up directly!
+      if (nftAddress) {
+        try {
+          console.log(`Looking up NFT address: ${nftAddress}`);
+          const nftRes = await axios.get(`${TON_API_URL}/nfts/${nftAddress}`, {
+            headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
+          });
+          
+          const nftData = nftRes.data;
+          if (nftData.collection && nftData.collection.address) {
+            console.log(`Found parent collection: ${nftData.collection.name} (${nftData.collection.address})`);
+            
+            // Get collection details (floor price)
+            const collectionRes = await axios.get(`${TON_API_URL}/nfts/collections/${nftData.collection.address}`, {
+              headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
+            });
+            
+            if (collectionRes.data.floor_price) {
+               floor = parseInt(collectionRes.data.floor_price) / 1000000000;
+               console.log(`Floor found via NFT lookup: ${floor}`);
+            }
+            
+            // If no floor in collection metadata, try filtering items by model
+            if (!floor && modelName) {
+               floor = await fetchItemsAndFilter(nftData.collection.address, modelName);
+            }
+          }
+        } catch (e) {
+          console.error("NFT Address lookup failed:", e.message);
+        }
+      }
+
       // Helper to search and get floor
       const searchAndGetFloor = async (query, filterModel) => {
         if (!query) return null;
@@ -48,36 +80,8 @@ async function getCollectionFloorTon(collectionName, modelName) {
 
           // Strategy B: If we have a specific model to filter by, fetch items and filter
           if (filterModel) {
-             try {
-               const itemsRes = await axios.get(`${TON_API_URL}/nfts/collections/${match.address}/items`, {
-                 params: { limit: 100 }, 
-                 headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
-               });
-               
-               const items = itemsRes.data.nft_items || [];
-               const matchingItems = items.filter(item => {
-                 // Check attributes
-                 const attrs = item.metadata?.attributes || [];
-                 return attrs.some(a => 
-                   (a.trait_type === 'Model' || a.key === 'Model') && 
-                   a.value.toLowerCase() === filterModel.toLowerCase()
-                 );
-               });
-
-               if (matchingItems.length > 0) {
-                 // Find cheapest sale
-                 const prices = matchingItems
-                   .filter(i => i.sale)
-                   .map(i => parseInt(i.sale.price.value) / 1000000000)
-                   .filter(p => p > 0);
-                 
-                 if (prices.length > 0) {
-                   return Math.min(...prices);
-                 }
-               }
-             } catch (e) {
-               console.error("Error filtering items:", e.message);
-             }
+             const filteredFloor = await fetchItemsAndFilter(match.address, filterModel);
+             if (filteredFloor) return filteredFloor;
           }
           
           // Fallback to collection floor if no specific model filtering worked
@@ -86,19 +90,57 @@ async function getCollectionFloorTon(collectionName, modelName) {
         return null;
       };
 
-      // Attempt 1: Try searching for the Collection Name
-      floor = await searchAndGetFloor(collectionName, modelName);
-      
-      // Attempt 2: If failed, try searching for "Telegram Gifts" (Common case)
-      if (!floor && modelName) {
-         console.log(`Retrying with "Telegram Gifts"...`);
-         floor = await searchAndGetFloor("Telegram Gifts", modelName);
-      }
+      // Helper to fetch items and filter by model
+      const fetchItemsAndFilter = async (collectionAddress, filterModel) => {
+         try {
+           const itemsRes = await axios.get(`${TON_API_URL}/nfts/collections/${collectionAddress}/items`, {
+             params: { limit: 100 }, 
+             headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
+           });
+           
+           const items = itemsRes.data.nft_items || [];
+           const matchingItems = items.filter(item => {
+             // Check attributes
+             const attrs = item.metadata?.attributes || [];
+             return attrs.some(a => 
+               (a.trait_type === 'Model' || a.key === 'Model') && 
+               a.value.toLowerCase() === filterModel.toLowerCase()
+             );
+           });
 
-      // Attempt 3: If failed, try searching for the Model Name as the collection
-      if (!floor && modelName && modelName !== collectionName) {
-        console.log(`Retrying with Model Name: "${modelName}"...`);
-        floor = await searchAndGetFloor(modelName, null);
+           if (matchingItems.length > 0) {
+             // Find cheapest sale
+             const prices = matchingItems
+               .filter(i => i.sale)
+               .map(i => parseInt(i.sale.price.value) / 1000000000)
+               .filter(p => p > 0);
+             
+             if (prices.length > 0) {
+               return Math.min(...prices);
+             }
+           }
+         } catch (e) {
+           console.error("Error filtering items:", e.message);
+         }
+         return null;
+      };
+
+      // If NFT lookup failed or wasn't possible, try search strategies
+      if (!floor) {
+        // Attempt 1: Try searching for the Collection Name
+        floor = await searchAndGetFloor(collectionName, modelName);
+        
+        // Attempt 2: If failed, try searching for "Telegram Gifts" (Common case)
+        if (!floor && modelName) {
+           console.log(`Retrying with "Telegram Gifts"...`);
+           floor = await searchAndGetFloor("Telegram Gifts", modelName);
+        }
+
+        // Attempt 3: If failed, try searching for the Model Name as the collection
+        if (!floor && modelName && modelName !== collectionName) {
+          console.log(`Retrying with Model Name: "${modelName}"...`);
+          floor = await searchAndGetFloor(modelName, null);
+        }
       }
 
     } catch (e) {

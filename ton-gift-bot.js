@@ -648,8 +648,8 @@ async function analyzeRealGiftParameters(giftLink, params) {
       const modelName = params.model.name;
       
       // Fetch floor price from Aggregator
-      // Pass modelName as context for filtering if needed
-      floorPrice = await getCollectionFloorTon(collectionName, modelName);
+      // Pass nftAddress if available, otherwise collection/model
+      floorPrice = await getCollectionFloorTon(collectionName, modelName, params.nftAddress);
       
       const attributes = [
         { name: 'Model', rarity: params.model.rarity },
@@ -1109,9 +1109,11 @@ bot.on('message', async (msg) => {
             // Debug: Log the full page text to understand structure
             const pageText = await page.evaluate(() => document.body.innerText);
             console.log("DEBUG PAGE TEXT:", pageText);
+            
+            const currentUrl = page.url();
 
             // Extract data from the page
-            scrapedData = await page.evaluate(() => {
+            scrapedData = await page.evaluate((url) => {
               // Helper to find value associated with a label
               // We look for a container that has the label, and then try to find the value
               const findValueForLabel = (label) => {
@@ -1140,9 +1142,10 @@ bot.on('message', async (msg) => {
                 availabilityRaw: findValueForLabel("Availability") || findValueForLabel("Quantity"),
                 valueRaw: findValueForLabel("Value") || findValueForLabel("Price") || findValueForLabel("€") || findValueForLabel("TON"),
                 collectionRaw: findValueForLabel("Collection") || findValueForLabel("Owner"),
-                title: document.title
+                title: document.title,
+                url: url
               };
-            });
+            }, currentUrl);
             
             await browser.close();
             logger.info('Puppeteer scraping successful');
@@ -1169,7 +1172,12 @@ bot.on('message', async (msg) => {
              };
            };
 
+           // Extract address from URL if possible (e.g. .../nft/EQ...)
+           const addressMatch = scrapedData.url ? scrapedData.url.match(/(EQ[a-zA-Z0-9_-]{46})/) : null;
+           const nftAddress = addressMatch ? addressMatch[1] : null;
+
            giftParams = {
+             nftAddress: nftAddress,
              collection: scrapedData.collectionRaw ? scrapedData.collectionRaw.replace("Collection", "").replace("Owner", "").trim() : null,
              title: scrapedData.title,
              model: parseRaw(scrapedData.modelRaw, "Model"),
