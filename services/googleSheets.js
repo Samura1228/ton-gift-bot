@@ -50,6 +50,10 @@ async function logInteraction({ user, giftLink, status, giftData, priceData, err
   try {
     const sheet = doc.sheetsByIndex[0]; // Use the first sheet
     
+    // Extract simple values from giftData
+    const collectionName = giftData && giftData.model ? giftData.model.name : '';
+    const rarityVal = giftData && giftData.model ? giftData.model.rarity : '';
+
     // Prepare row data
     const row = {
       Timestamp: new Date().toISOString(),
@@ -58,8 +62,8 @@ async function logInteraction({ user, giftLink, status, giftData, priceData, err
       FirstName: user.first_name || '',
       GiftLink: giftLink,
       Status: status,
-      Collection: giftData ? giftData.model : '',
-      Rarity: giftData ? `${giftData.modelRarity || ''}` : '',
+      Collection: collectionName,
+      Rarity: rarityVal,
       FloorPrice: priceData ? priceData.floorPrice : '',
       FastPrice: priceData ? priceData.fast : '',
       MarketPrice: priceData ? priceData.market : '',

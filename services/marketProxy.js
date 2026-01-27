@@ -31,31 +31,20 @@ async function getCollectionFloorTon(collectionName) {
           headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
         });
         
-        // floor_price is in nanoTON? No, usually raw.
-        // TonAPI docs say floor_price is number.
-        // Let's check if it exists.
-        // Actually, TonAPI might not return floor_price in collection details directly?
-        // It does!
-        
-        // Wait, TonAPI v2 might not have floor_price in getCollection.
-        // Let's assume it does or we can fetch items.
-        // Actually, let's stick to the Proxy if TonAPI fails or doesn't have floor.
-        
-        // Alternative: Get items and sort by price.
-        const itemsRes = await axios.get(`${TON_API_URL}/nfts/collections/${match.address}/items`, {
-          params: { limit: 20, offset: 0 }, // Can we sort?
-          headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
-        });
-        
-        // TonAPI doesn't support sorting items by price easily in this endpoint.
-        // But GetGems does.
+        // TonAPI returns floor_price in raw format (nanoTON) if available
+        // Note: Not all collections have floor_price in the response
+        const colData = collectionRes.data;
+        if (colData.floor_price) {
+           floor = parseInt(colData.floor_price) / 1000000000;
+           console.log(`Floor found via TonAPI: ${floor}`);
+        }
       }
     } catch (e) {
       console.error('TonAPI check failed:', e.message);
     }
   }
 
-  // 3. Try Proxy (TONNEL/GetGems)
+  // 3. Try Proxy (TONNEL/GetGems) if TonAPI failed or didn't have floor
   if (!floor && PROXY_URL) {
     try {
       const response = await axios.get(`${PROXY_URL}/floor`, {
