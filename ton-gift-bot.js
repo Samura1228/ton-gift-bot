@@ -642,10 +642,14 @@ async function analyzeRealGiftParameters(giftLink, params) {
     let floorPrice = null;
 
     try {
-      const collectionName = params.model.name || "Unknown Collection";
+      // Determine best collection name to search for
+      // If we scraped a specific collection name, use it. Otherwise use the model name.
+      const collectionName = params.collection || params.model.name || "Unknown Collection";
+      const modelName = params.model.name;
       
       // Fetch floor price from Aggregator
-      floorPrice = await getCollectionFloorTon(collectionName);
+      // Pass modelName as context for filtering if needed
+      floorPrice = await getCollectionFloorTon(collectionName, modelName);
       
       const attributes = [
         { name: 'Model', rarity: params.model.rarity },
@@ -1135,6 +1139,7 @@ bot.on('message', async (msg) => {
                 backgroundRaw: findValueForLabel("Backdrop") || findValueForLabel("Background"),
                 availabilityRaw: findValueForLabel("Availability") || findValueForLabel("Quantity"),
                 valueRaw: findValueForLabel("Value") || findValueForLabel("Price") || findValueForLabel("€") || findValueForLabel("TON"),
+                collectionRaw: findValueForLabel("Collection") || findValueForLabel("Owner"),
                 title: document.title
               };
             });
@@ -1165,6 +1170,8 @@ bot.on('message', async (msg) => {
            };
 
            giftParams = {
+             collection: scrapedData.collectionRaw ? scrapedData.collectionRaw.replace("Collection", "").replace("Owner", "").trim() : null,
+             title: scrapedData.title,
              model: parseRaw(scrapedData.modelRaw, "Model"),
              symbol: parseRaw(scrapedData.symbolRaw, "Symbol"),
              background: parseRaw(scrapedData.backgroundRaw, "Backdrop"),
