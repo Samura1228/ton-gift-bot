@@ -4,6 +4,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const { estimatePrice } = require('./services/pricingLogic');
 const { getCollectionFloorTon } = require('./services/markets/index');
+const { logInteraction } = require('./services/googleSheets');
 let puppeteer;
 try {
   puppeteer = require('puppeteer');
@@ -1302,12 +1303,30 @@ bot.on('message', async (msg) => {
       // Format and send the analysis
       const message = formatRarityAnalysis(analysis);
       await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+
+      // Log success to Google Sheets
+      await logInteraction({
+        user: msg.from,
+        giftLink: giftLink,
+        status: 'SUCCESS',
+        giftData: giftParams,
+        priceData: analysis.priceEstimation
+      });
+
     } catch (error) {
       logger.error(`Error analyzing gift rarity: ${error.message}`);
       await bot.sendMessage(
         chatId,
         'Sorry, I encountered an error while analyzing this gift. Please try again later.'
       );
+
+      // Log error to Google Sheets
+      await logInteraction({
+        user: msg.from,
+        giftLink: giftLink,
+        status: 'ERROR',
+        error: error.message
+      });
     }
     
     return;
