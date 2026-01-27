@@ -21,6 +21,8 @@ async function getCollectionFloorTon(collectionName, modelName) {
       
       // Helper to search and get floor
       const searchAndGetFloor = async (query, filterModel) => {
+        if (!query) return null;
+        
         const searchRes = await axios.get(`${TON_API_URL}/nfts/collections/search`, {
           params: { name: query },
           headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
@@ -34,7 +36,6 @@ async function getCollectionFloorTon(collectionName, modelName) {
           console.log(`Found collection: ${match.name} (${match.address})`);
           
           // Strategy A: Get collection floor directly (if available)
-          // But if we need to filter by model, we can't use this unless the collection IS the model.
           let collectionFloor = null;
           try {
              const collectionRes = await axios.get(`${TON_API_URL}/nfts/collections/${match.address}`, {
@@ -85,13 +86,18 @@ async function getCollectionFloorTon(collectionName, modelName) {
         return null;
       };
 
-      // Try searching for the Collection Name first
+      // Attempt 1: Try searching for the Collection Name
       floor = await searchAndGetFloor(collectionName, modelName);
       
-      // If failed, and we have a model name, try searching for the Model Name as the collection
-      // (e.g. maybe the collection is named "Red Star" directly)
+      // Attempt 2: If failed, try searching for "Telegram Gifts" (Common case)
+      if (!floor && modelName) {
+         console.log(`Retrying with "Telegram Gifts"...`);
+         floor = await searchAndGetFloor("Telegram Gifts", modelName);
+      }
+
+      // Attempt 3: If failed, try searching for the Model Name as the collection
       if (!floor && modelName && modelName !== collectionName) {
-        console.log(`Retrying TonAPI with Model Name: "${modelName}"...`);
+        console.log(`Retrying with Model Name: "${modelName}"...`);
         floor = await searchAndGetFloor(modelName, null);
       }
 
