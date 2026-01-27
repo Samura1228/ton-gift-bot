@@ -1,5 +1,9 @@
 const axios = require('axios');
 const cache = require('./cache');
+let puppeteer;
+try {
+  puppeteer = require('puppeteer');
+} catch (e) {}
 
 const PROXY_URL = process.env.MARKET_PROXY_URL;
 const TON_API_KEY = process.env.TON_API_KEY;
@@ -22,15 +26,12 @@ async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
       // Strategy 0: If we have the NFT Address, look it up directly!
       if (nftAddress) {
         try {
-          console.log(`Looking up NFT address: ${nftAddress}`);
           const nftRes = await axios.get(`${TON_API_URL}/nfts/${nftAddress}`, {
             headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
           });
           
           const nftData = nftRes.data;
           if (nftData.collection && nftData.collection.address) {
-            console.log(`Found parent collection: ${nftData.collection.name} (${nftData.collection.address})`);
-            
             // Get collection details (floor price)
             const collectionRes = await axios.get(`${TON_API_URL}/nfts/collections/${nftData.collection.address}`, {
               headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
@@ -38,12 +39,6 @@ async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
             
             if (collectionRes.data.floor_price) {
                floor = parseInt(collectionRes.data.floor_price) / 1000000000;
-               console.log(`Floor found via NFT lookup: ${floor}`);
-            }
-            
-            // If no floor in collection metadata, try filtering items by model
-            if (!floor && modelName) {
-               floor = await fetchItemsAndFilter(nftData.collection.address, modelName);
             }
           }
         } catch (e) {
@@ -54,20 +49,15 @@ async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
       // Helper to search and get floor
       const searchAndGetFloor = async (query, filterModel) => {
         if (!query) return null;
-        
         const searchRes = await axios.get(`${TON_API_URL}/nfts/collections/search`, {
           params: { name: query },
           headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
         });
 
         const collections = searchRes.data.nft_collections || [];
-        // Find best match
         const match = collections.find(c => c.name.toLowerCase().includes(query.toLowerCase()));
 
         if (match) {
-          console.log(`Found collection: ${match.name} (${match.address})`);
-          
-          // Strategy A: Get collection floor directly (if available)
           let collectionFloor = null;
           try {
              const collectionRes = await axios.get(`${TON_API_URL}/nfts/collections/${match.address}`, {
@@ -77,103 +67,69 @@ async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
                collectionFloor = parseInt(collectionRes.data.floor_price) / 1000000000;
              }
           } catch (e) {}
-
-          // Strategy B: If we have a specific model to filter by, fetch items and filter
-          if (filterModel) {
-             const filteredFloor = await fetchItemsAndFilter(match.address, filterModel);
-             if (filteredFloor) return filteredFloor;
-          }
-          
-          // Fallback to collection floor if no specific model filtering worked
           return collectionFloor;
         }
         return null;
       };
 
-      // Helper to fetch items and filter by model
-      const fetchItemsAndFilter = async (collectionAddress, filterModel) => {
-         try {
-           const itemsRes = await axios.get(`${TON_API_URL}/nfts/collections/${collectionAddress}/items`, {
-             params: { limit: 100 }, 
-             headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
-           });
-           
-           const items = itemsRes.data.nft_items || [];
-           const matchingItems = items.filter(item => {
-             // Check attributes
-             const attrs = item.metadata?.attributes || [];
-             return attrs.some(a => 
-               (a.trait_type === 'Model' || a.key === 'Model') && 
-               a.value.toLowerCase() === filterModel.toLowerCase()
-             );
-           });
-
-           if (matchingItems.length > 0) {
-             // Find cheapest sale
-             const prices = matchingItems
-               .filter(i => i.sale)
-               .map(i => parseInt(i.sale.price.value) / 1000000000)
-               .filter(p => p > 0);
-             
-             if (prices.length > 0) {
-               return Math.min(...prices);
-             }
-           }
-         } catch (e) {
-           console.error("Error filtering items:", e.message);
-         }
-         return null;
-      };
-
-      // If NFT lookup failed or wasn't possible, try search strategies
-      if (!floor) {
-        // Attempt 1: Try searching for the Collection Name
-        floor = await searchAndGetFloor(collectionName, modelName);
-        
-        // Attempt 2: If failed, try searching for "Telegram Gifts" (Common case)
-        if (!floor && modelName) {
-           console.log(`Retrying with "Telegram Gifts"...`);
-           floor = await searchAndGetFloor("Telegram Gifts", modelName);
-        }
-
-        // Attempt 3: If failed, try searching for the Model Name as the collection
-        if (!floor && modelName && modelName !== collectionName) {
-          console.log(`Retrying with Model Name: "${modelName}"...`);
-          floor = await searchAndGetFloor(modelName, null);
-        }
-      }
+      if (!floor) floor = await searchAndGetFloor(collectionName, modelName);
+      if (!floor && modelName) floor = await searchAndGetFloor("Telegram Gifts", modelName);
+      if (!floor && modelName) floor = await searchAndGetFloor(modelName, null);
 
     } catch (e) {
       console.error('TonAPI check failed:', e.message);
     }
   }
 
-  // 3. Try Proxy (TONNEL/GetGems) if TonAPI failed
+  // 3. Try Proxy (TONNEL/GetGems)
   if (!floor && PROXY_URL) {
     try {
-      // Try collection name
       let response = await axios.get(`${PROXY_URL}/floor`, {
         params: { collection: collectionName },
         timeout: 15000
       });
-
-      if (!response.data.ok && modelName) {
-         // Try model name
-         response = await axios.get(`${PROXY_URL}/floor`, {
-            params: { collection: modelName },
-            timeout: 15000
-         });
-      }
-
-      const data = response.data;
-      if (data && data.ok && data.floorTon !== null) {
-        floor = data.floorTon;
-        console.log(`Floor found via Proxy: ${floor}`);
-      } else {
-        console.log(`Proxy failed: ${data.error}`);
+      if (response.data.ok && response.data.floorTon !== null) {
+        floor = response.data.floorTon;
       }
     } catch (error) {
       console.error(`Proxy fetch error:`, error.message);
+    }
+  }
+
+  // 4. LAST RESORT: Puppeteer Scraping of GetGems
+  if (!floor && puppeteer && modelName) {
+    try {
+      console.log(`Attempting Puppeteer scrape for ${modelName}...`);
+      const browser = await puppeteer.launch({
+        headless: "new",
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const page = await browser.newPage();
+      // Search GetGems
+      await page.goto(`https://getgems.io/search?q=${encodeURIComponent(modelName)}`, { waitUntil: 'networkidle2', timeout: 30000 });
+      
+      // Wait for price elements
+      try {
+        await page.waitForSelector('div[class*="Price"]', { timeout: 5000 });
+        
+        // Extract first price
+        const priceText = await page.evaluate(() => {
+          const priceEl = document.querySelector('div[class*="Price"]');
+          return priceEl ? priceEl.textContent : null;
+        });
+        
+        if (priceText) {
+          const p = parseFloat(priceText.replace(/[^0-9.]/g, ''));
+          if (p > 0) {
+            floor = p;
+            console.log(`Puppeteer found price: ${floor}`);
+          }
+        }
+      } catch (e) {}
+      
+      await browser.close();
+    } catch (e) {
+      console.error("Puppeteer market scrape failed:", e.message);
     }
   }
 
