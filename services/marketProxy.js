@@ -40,6 +40,12 @@ async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
             if (collectionRes.data.floor_price) {
                floor = parseInt(collectionRes.data.floor_price) / 1000000000;
             }
+            
+            // If we have a model name, try to find specific floor for that model
+            if (modelName) {
+               const specificFloor = await fetchItemsAndFilter(nftData.collection.address, modelName);
+               if (specificFloor) floor = specificFloor;
+            }
           }
         } catch (e) {
           console.error("NFT Address lookup failed:", e.message);
@@ -67,14 +73,47 @@ async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
                collectionFloor = parseInt(collectionRes.data.floor_price) / 1000000000;
              }
           } catch (e) {}
+          
+          if (filterModel) {
+             const filteredFloor = await fetchItemsAndFilter(match.address, filterModel);
+             if (filteredFloor) return filteredFloor;
+          }
           return collectionFloor;
         }
         return null;
       };
 
+      // Helper to fetch items and filter by model
+      const fetchItemsAndFilter = async (collectionAddress, filterModel) => {
+         try {
+           const itemsRes = await axios.get(`${TON_API_URL}/nfts/collections/${collectionAddress}/items`, {
+             params: { limit: 100 }, 
+             headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
+           });
+           
+           const items = itemsRes.data.nft_items || [];
+           const matchingItems = items.filter(item => {
+             const attrs = item.metadata?.attributes || [];
+             return attrs.some(a => 
+               (a.trait_type === 'Model' || a.key === 'Model') && 
+               a.value.toLowerCase() === filterModel.toLowerCase()
+             );
+           });
+
+           if (matchingItems.length > 0) {
+             const prices = matchingItems
+               .filter(i => i.sale)
+               .map(i => parseInt(i.sale.price.value) / 1000000000)
+               .filter(p => p > 0);
+             
+             if (prices.length > 0) return Math.min(...prices);
+           }
+         } catch (e) {}
+         return null;
+      };
+
       if (!floor) floor = await searchAndGetFloor(collectionName, modelName);
       if (!floor && modelName) floor = await searchAndGetFloor("Telegram Gifts", modelName);
-      if (!floor && modelName) floor = await searchAndGetFloor(modelName, null);
 
     } catch (e) {
       console.error('TonAPI check failed:', e.message);
@@ -105,14 +144,13 @@ async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
         args: ['--no-sandbox', '--disable-setuid-sandbox']
       });
       const page = await browser.newPage();
-      // Search GetGems
-      await page.goto(`https://getgems.io/search?q=${encodeURIComponent(modelName)}`, { waitUntil: 'networkidle2', timeout: 30000 });
       
-      // Wait for price elements
+      // Search specifically for Telegram Gifts + Model to avoid random matches
+      const searchQuery = `Telegram Gifts ${modelName}`;
+      await page.goto(`https://getgems.io/search?q=${encodeURIComponent(searchQuery)}`, { waitUntil: 'networkidle2', timeout: 30000 });
+      
       try {
         await page.waitForSelector('div[class*="Price"]', { timeout: 5000 });
-        
-        // Extract first price
         const priceText = await page.evaluate(() => {
           const priceEl = document.querySelector('div[class*="Price"]');
           return priceEl ? priceEl.textContent : null;
@@ -120,7 +158,8 @@ async function getCollectionFloorTon(collectionName, modelName, nftAddress) {
         
         if (priceText) {
           const p = parseFloat(priceText.replace(/[^0-9.]/g, ''));
-          if (p > 0) {
+          // Sanity check: Ignore crazy high prices (likely wrong item)
+          if (p > 0 && p < 10000) {
             floor = p;
             console.log(`Puppeteer found price: ${floor}`);
           }
