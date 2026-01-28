@@ -799,34 +799,35 @@ function formatRarityAnalysis(analysis) {
   const p = analysis.parameters;
   const est = analysis.priceEstimation;
   const floor = analysis.floorPrice || 0;
+  const tonUsd = 5.5; // Hardcoded for now as requested
 
   if (est.error) {
     return `Error: ${est.error}`;
   }
 
-  // Format rarity percentages if they exist in the string (e.g. "Name 5%")
-  // The scraper returns strings like "Name 5%", so we can use them directly.
+  const floorUsd = (floor * tonUsd).toFixed(2);
   
-  return `🎁 Gift Analysis
+  // Extract rarity percentage from model string if present (e.g. "Name 5%")
+  const rarityMatch = p.model.match(/(\d+(?:\.\d+)?)%/);
+  const rarityPercent = rarityMatch ? parseFloat(rarityMatch[1]) : 0;
+  let rarityTier = "Common";
+  if (rarityPercent > 0 && rarityPercent <= 1) rarityTier = "Legendary";
+  else if (rarityPercent <= 5) rarityTier = "Rare";
+  else if (rarityPercent <= 20) rarityTier = "Uncommon";
 
-Parameters:
-• Model: ${p.model}
-• Symbol: ${p.symbol}
-• Background: ${p.background}
-• Original Value: ${analysis.scrapedValue && analysis.scrapedValue.amount > 0 ? analysis.scrapedValue.amount + ' ' + analysis.scrapedValue.currency : 'N/A'}
+  return `🎁 *Gift:* ${p.model.replace(/\s*\d+(\.\d+)?%/, '')}
+💎 *Rarity:* ${rarityTier} ${rarityPercent > 0 ? `(Top ${rarityPercent}%)` : ''}
 
-Market Reference:
-• Collection floor: ${floor.toFixed(2)} TON
-• Rarity bonus: +${est.bonusPercent}%
+📊 *Market Data:*
+├ *Floor Price:* *${floor.toFixed(2)} TON* (~$${floorUsd})
+└ Last Sale: N/A
 
-Price Recommendation:
-🟢 Fast sale: ${est.fast} TON
-🟡 Market price: ${est.market} TON
-🔴 Max price (slow sale): ${est.max} TON
+💡 *Price Recommendations:*
+🚀 *Fast Sale:* ${est.fast.toFixed(2)} TON (sell in mins)
+✅ *Fair Price:* ${est.market.toFixed(2)} TON (sell in hours)
+💎 *Hold Price:* ${est.max.toFixed(2)} TON (for collectors)
 
-Note:
-Rarity slightly increases price but does not guarantee a fast sale.
-Prices above the recommended range may take significantly longer to sell.`;
+The price is updated every 5 minutes.`;
 }
 
 // Validate TON address
@@ -1317,7 +1318,21 @@ bot.on('message', async (msg) => {
       
       // Format and send the analysis
       const message = formatRarityAnalysis(analysis);
-      await bot.sendMessage(chatId, message, { parse_mode: 'Markdown' });
+      
+      // Create buttons
+      const opts = {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🔗 View on Getgems', url: giftParams.nftAddress ? `https://getgems.io/nft/${giftParams.nftAddress}` : `https://getgems.io/search?q=${encodeURIComponent(giftParams.model.name)}` },
+              { text: '🔄 Refresh Price', callback_data: `refresh_${giftParams.nftAddress || 'unknown'}` }
+            ]
+          ]
+        }
+      };
+
+      await bot.sendMessage(chatId, message, opts);
 
       // Log success to Google Sheets
       await logInteraction({
@@ -1414,6 +1429,73 @@ setInterval(async () => {
     }
   }
 }, 60000); // Check every minute
+
+// Handle callback queries (buttons)
+bot.on('callback_query', async (callbackQuery) => {
+  const message = callbackQuery.message;
+  const data = callbackQuery.data;
+  const chatId = message.chat.id;
+
+  if (data.startsWith('refresh_')) {
+    const nftAddress = data.replace('refresh_', '');
+    
+    if (nftAddress === 'unknown') {
+      await bot.answerCallbackQuery(callbackQuery.id, { text: 'Cannot refresh: Link expired or invalid.' });
+      return;
+    }
+
+    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Refreshing price...' });
+    await bot.sendMessage(chatId, '🔄 Refreshing data for this gift...');
+
+    try {
+      const mockParams = {
+        nftAddress: nftAddress,
+        model: { name: 'Loading...', rarity: 0 },
+        symbol: { name: 'Unknown', rarity: 0 },
+        background: { name: 'Unknown', rarity: 0 },
+        availability: { current: 0, total: 0, percentage: 0 },
+        value: { amount: 0, currency: '€' }
+      };
+
+      const analysis = await analyzeRealGiftParameters(`https://ton.app/nft/${nftAddress}`, mockParams);
+      
+      // Try to fetch item details to populate the name
+      try {
+         const axios = require('axios');
+         const TON_API_KEY = process.env.TON_API_KEY;
+         const res = await axios.get(`https://tonapi.io/v2/nfts/${nftAddress}`, {
+            headers: { 'Authorization': `Bearer ${TON_API_KEY}` }
+         });
+         if (res.data && res.data.metadata) {
+            const attrs = res.data.metadata.attributes || [];
+            const modelAttr = attrs.find(a => a.trait_type === 'Model');
+            if (modelAttr) analysis.parameters.model = modelAttr.value;
+            else analysis.parameters.model = res.data.metadata.name || 'Unknown Gift';
+         }
+      } catch (e) {}
+
+      const msg = formatRarityAnalysis(analysis);
+      
+      const opts = {
+        parse_mode: 'Markdown',
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: '🔗 View on Getgems', url: `https://getgems.io/nft/${nftAddress}` },
+              { text: '🔄 Refresh Price', callback_data: `refresh_${nftAddress}` }
+            ]
+          ]
+        }
+      };
+      
+      await bot.sendMessage(chatId, msg, opts);
+
+    } catch (error) {
+      logger.error(`Refresh failed: ${error.message}`);
+      await bot.sendMessage(chatId, 'Failed to refresh price.');
+    }
+  }
+});
 
 // Error handling for the bot
 bot.on('polling_error', (error) => {

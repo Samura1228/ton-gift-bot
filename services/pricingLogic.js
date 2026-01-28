@@ -33,22 +33,23 @@ function estimatePrice({ floorPrice, attributes }) {
   // Cap total bonus at 0.6
   if (totalBonus > 0.6) totalBonus = 0.6;
 
+  // Base Price includes Rarity Bonus
   const basePrice = floorPrice * (1 + totalBonus);
-  const minPrice = floorPrice * 0.9;
-  const maxCap = floorPrice * 3.0;
-
-  let fast = basePrice * 0.95;
-  if (fast < minPrice) fast = minPrice;
-
-  let market = basePrice;
   
-  let max = basePrice * 1.2;
-  if (max > maxCap) max = maxCap;
+  // Logic requested:
+  // Fast: 0.95
+  // Fair: 1.02
+  // Hold: 1.15
+  
+  let fast = basePrice * 0.95;
+  let market = basePrice * 1.02;
+  let max = basePrice * 1.15;
 
   // Round to 2 decimal places
   const round = (num) => Math.round(num * 100) / 100;
 
   const priceResult = {
+    floor: round(floorPrice),
     fast: round(fast),
     market: round(market),
     max: round(max),
