@@ -19,34 +19,35 @@ function rarityBonus(rarity) {
  * @returns {Object} Price estimation object
  */
 function estimatePrice({ floorPrice, attributes }) {
-  if (!floorPrice || floorPrice <= 0) {
-    throw new Error("Market data temporarily unavailable. Unable to determine collection floor.");
-  }
-
+  // Calculate bonus regardless of floor price
   let totalBonus = 0;
   for (const attr of attributes) {
-    // Normalize rarity to 0.0-1.0 scale if it's in 0-100 scale
     const rarityDecimal = attr.rarity > 1 ? attr.rarity / 100 : attr.rarity;
     totalBonus += rarityBonus(rarityDecimal);
   }
-
-  // Cap total bonus at 0.6
   if (totalBonus > 0.6) totalBonus = 0.6;
+
+  // Round to 2 decimal places
+  const round = (num) => Math.round(num * 100) / 100;
+
+  if (!floorPrice || floorPrice <= 0) {
+    // Return nulls if no market data, but keep bonus info
+    return {
+      floor: 0,
+      fast: 0,
+      market: 0,
+      max: 0,
+      bonusPercent: round(totalBonus * 100),
+      error: "Market data unavailable"
+    };
+  }
 
   // Base Price includes Rarity Bonus
   const basePrice = floorPrice * (1 + totalBonus);
   
-  // Logic requested:
-  // Fast: 0.95
-  // Fair: 1.02
-  // Hold: 1.15
-  
   let fast = basePrice * 0.95;
   let market = basePrice * 1.02;
   let max = basePrice * 1.15;
-
-  // Round to 2 decimal places
-  const round = (num) => Math.round(num * 100) / 100;
 
   const priceResult = {
     floor: round(floorPrice),

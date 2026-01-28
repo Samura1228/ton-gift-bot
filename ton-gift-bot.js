@@ -801,11 +801,14 @@ function formatRarityAnalysis(analysis) {
   const floor = analysis.floorPrice || 0;
   const tonUsd = 5.5; // Hardcoded for now as requested
 
-  if (est.error) {
-    return `Error: ${est.error}`;
-  }
-
-  const floorUsd = (floor * tonUsd).toFixed(2);
+  // Handle missing market data gracefully
+  const hasPrice = !est.error && floor > 0;
+  const floorStr = hasPrice ? `${floor.toFixed(2)} TON` : "N/A";
+  const floorUsdStr = hasPrice ? `(~$${(floor * tonUsd).toFixed(2)})` : "";
+  
+  const fastStr = hasPrice ? `${est.fast.toFixed(2)} TON` : "N/A";
+  const marketStr = hasPrice ? `${est.market.toFixed(2)} TON` : "N/A";
+  const maxStr = hasPrice ? `${est.max.toFixed(2)} TON` : "N/A";
   
   // Extract rarity percentage from model string if present (e.g. "Name 5%")
   const rarityMatch = p.model.match(/(\d+(?:\.\d+)?)%/);
@@ -819,13 +822,13 @@ function formatRarityAnalysis(analysis) {
 💎 *Rarity:* ${rarityTier} ${rarityPercent > 0 ? `(Top ${rarityPercent}%)` : ''}
 
 📊 *Market Data:*
-├ *Floor Price:* *${floor.toFixed(2)} TON* (~$${floorUsd})
+├ *Floor Price:* *${floorStr}* ${floorUsdStr}
 └ Last Sale: N/A
 
 💡 *Price Recommendations:*
-🚀 *Fast Sale:* ${est.fast.toFixed(2)} TON (sell in mins)
-✅ *Fair Price:* ${est.market.toFixed(2)} TON (sell in hours)
-💎 *Hold Price:* ${est.max.toFixed(2)} TON (for collectors)
+🚀 *Fast Sale:* ${fastStr} (sell in mins)
+✅ *Fair Price:* ${marketStr} (sell in hours)
+💎 *Hold Price:* ${maxStr} (for collectors)
 
 The price is updated every 5 minutes.`;
 }
@@ -1174,8 +1177,13 @@ bot.on('message', async (msg) => {
            };
 
            // Extract address from URL if possible (e.g. .../nft/EQ...)
-           const addressMatch = scrapedData.url ? scrapedData.url.match(/(EQ[a-zA-Z0-9_-]{46})/) : null;
+           // Extract address from URL if possible (e.g. .../nft/EQ... or .../nft/UQ...)
+           // Support both EQ (contract) and UQ (user-friendly) formats
+           const addressMatch = scrapedData.url ? scrapedData.url.match(/((?:EQ|UQ)[a-zA-Z0-9_-]{46})/) : null;
            const nftAddress = addressMatch ? addressMatch[1] : null;
+           
+           console.log(`DEBUG: Extracted URL: ${scrapedData.url}`);
+           console.log(`DEBUG: Extracted Address: ${nftAddress}`);
 
            giftParams = {
              nftAddress: nftAddress,
